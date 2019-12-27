@@ -1,0 +1,470 @@
+---
+title: "MAL 2 Project"
+author: "Frederick Deny, Paul Canat"
+date: "10/12/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+load("weatherdata.Rdata")
+ls()
+knitr::opts_chunk$set(warning=FALSE,echo=FALSE) 
+```
+
+
+```{r, include=FALSE}
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+library("rnaturalearth")
+library(rnaturalearthdata)
+library(maps)
+library(cowplot)
+library(gridExtra)
+library(clValid)
+library(dendextend)
+library(purrr)
+library(mclust)
+```
+
+
+```{r,echo=FALSE,include=FALSE}
+retrieveGraphs <- function(CityLat, CityLong){
+  tabpos=(GPSpos$Lon-CityLong)^2+(GPSpos$Lat-CityLat)^2
+  i=which.min(tabpos)
+  par(mfrow=c(1,2))
+  plot(Temp[i,],type='l',lwd=2,xlab='time',ylab='Temp',col="blue")
+  plot(Wind[i,],type='l',lwd=2,xlab='time',ylab='Wind',col="blue")
+}
+
+retrieveGraphs(48.51,2.20)
+retrieveGraphs(43.3,5.40)
+retrieveGraphs(44.8333,-0.5667)
+```
+
+# Introduction
+
+```{r plot map, fig.align="center",fig.width=8, fig.height=3, echo=FALSE}
+cities_name <- data.frame(Lat = c(48.51,43.3,44), Long = c(2.20,5.4,-0.5667), Name = c("Paris","Marseille","Bordeaux"))
+cities <- st_as_sf(cities_name, coords = c("Long", "Lat"), crs = 4326, agr = "constant")
+
+
+meanTemp <- rowMeans(Temp)
+meanWind <- rowMeans(Wind)
+
+obs_temp <- data.frame(Lat = GPSpos$Lat, Long = GPSpos$Lon, Temp = meanTemp)
+obs_temp <- st_as_sf(obs_temp, coords = c("Long", "Lat"), crs = 4326, agr = "constant")
+
+obs_wind <- data.frame(Lat = GPSpos$Lat, Long = GPSpos$Lon, Wind = meanWind)
+obs_wind <- st_as_sf(obs_wind, coords = c("Long", "Lat"), crs = 4326, agr = "constant")
+
+
+states <- st_as_sf(maps::map("france", plot = FALSE, fill = TRUE))
+states <- cbind(states, st_coordinates(st_centroid(states)))
+
+
+france <- ne_countries(geounit = 'france', type = 'map_units', returnclass = "sf")
+
+cities_name$nudge_x <- 0
+cities_name$nudge_y <- 0
+
+cities_name$nudge_x[cities_name$Name == "Paris"] <- 2
+cities_name$nudge_x[cities_name$Name == "Bordeaux"] <- -3
+cities_name$nudge_x[cities_name$Name == "Marseille"] <- 1.5
+cities_name$nudge_y[cities_name$Name == "Marseille"] <- -1
+
+
+plotTemp <- ggplot(data = france)  + xlab("Longitude") + ylab("Latitude") +
+    ggtitle("Average temperatures")+
+    geom_sf(data = states, fill=NA)+
+    geom_sf(data = obs_temp,  size = 4, shape = 21, aes(fill = Temp))+
+    scale_fill_viridis_c(option = "plasma")+
+    geom_sf(data = cities,  size = 4, shape = 25, fill = "red")+
+    geom_label(data = cities_name,  aes(Long, Lat, label = Name), nudge_x = cities_name$nudge_x, nudge_y = cities_name$nudge_y)
+
+plotWind <- ggplot(data = france)  + xlab("Longitude") + ylab("Latitude") +
+    ggtitle("Average winds")+
+    geom_sf(data = states, fill=NA)+
+    geom_sf(data = obs_wind,  size = 4, shape = 21, aes(fill = Wind))+
+    scale_fill_viridis_c(option = "plasma")+
+    geom_sf(data = cities,  size = 4, shape = 25, fill = "red")+
+    geom_label(data = cities_name,  aes(Long, Lat, label = Name), nudge_x = cities_name$nudge_x, nudge_y = cities_name$nudge_y)
+
+plot_row <- plot_grid(plotTemp,plotWind)
+
+title <- ggdraw() + 
+  draw_label(
+    "Map of France of average mesures over a year",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+    
+```
+
+In this project we will study the segmentation of a Temperature and Winds dataset, in the effort of segmenting France into climate groups. The dataset contains 259 observations and 8760 features, which are in fact measurements taken every hour during a year.
+
+As a clustering quality indicator we will use the silhouette indicator, which evolves between -1 and 1, being closest to one the best clustering.
+
+# Wind
+
+## Raw Data
+
+### K-means 
+
+Silhouette:
+
+```{r}
+Wind <- scale(Wind)
+km_res <- kmeans(Wind,4,nstart = 25)
+mean(silhouette(km_res$cluster, dist(Wind))[,3])
+```
+
+```{r}
+#plot(silhouette(km_res$cluster, dist(Wind)), 1:259)
+avg_sil <- function(k){
+  km.res <- kmeans(Wind,k,nstart = 25)
+  ss <- silhouette(km.res$cluster, dist(Wind))
+  mean(ss[,3])
+}
+#avg_sil_values <- map_dbl(2:15, avg_sil)
+#plot(2:15, avg_sil_values,
+#       type = "b", pch = 19, frame = FALSE, 
+#       xlab = "Number of clusters K",
+#       ylab = "Average Silhouettes")
+
+
+plot_map <- function(cluster,title="test"){
+obs_wind <- data.frame(Lat = GPSpos$Lat, Long = GPSpos$Lon, Cluster = cluster)
+obs_wind <- st_as_sf(obs_wind, coords = c("Long", "Lat"), crs = 4326, agr = "constant")
+
+
+states <- st_as_sf(maps::map("france", plot = FALSE, fill = TRUE))
+states <- cbind(states, st_coordinates(st_centroid(states)))
+
+
+france <- ne_countries(geounit = 'france', type = 'map_units', returnclass = "sf")
+
+cities_name$nudge_x <- 0
+cities_name$nudge_y <- 0
+
+cities_name$nudge_x[cities_name$Name == "Paris"] <- 2
+cities_name$nudge_x[cities_name$Name == "Bordeaux"] <- -3
+cities_name$nudge_x[cities_name$Name == "Marseille"] <- 1.5
+cities_name$nudge_y[cities_name$Name == "Marseille"] <- -1
+
+
+return(ggplot(data = france)  + xlab("Longitude") + ylab("Latitude") +
+    ggtitle(title)+
+    geom_sf(data = states, fill=NA)+
+    geom_sf(data = obs_wind,  size = 4, shape = 21, aes(fill = Cluster))+
+    scale_fill_viridis_c(option = "plasma")+
+    geom_sf(data = cities,  size = 4, shape = 25, fill = "red")+
+    geom_label(data = cities_name,  aes(Long, Lat, label = Name), nudge_x = cities_name$nudge_x, nudge_y = cities_name$nudge_y))
+}
+
+
+```
+
+
+```{r plot map wind km, fig.align="center",fig.width=4,fig.height=2.5, echo=FALSE}
+
+plot_map(km_res$cluster, "Wind clusters - Kmeans")
+    
+```
+
+We obtaine here are rather weak silhouette result but the plot shows a make which makes sense considering France's geological caracteristics.
+
+
+
+### Hierarchical clustering 
+
+#### Distance method examination
+
+
+```{r hclust sil values,fig.width=10,cache=TRUE}
+
+
+method_label <- c("ward.D","ward.D2","single","complete","average","mcquitty","median","centroid")
+
+hclust_method_sil_values <- matrix(nrow=8)
+for(i in 1:length(method_label)){
+  name_tree <-paste("hc_tree_",method_label[i],sep = "") 
+  assign(name_tree, hclust(dist(Wind),method = method_label[i]))
+  hclust_method_sil_values[i] <-mean(silhouette(cutree(get(name_tree),4),dist(Wind))[,3])
+  name_res <-paste("hc_res_",method_label[i],sep = "")
+  assign(name_res,cutree(get(name_tree),4))
+  name_plot <- paste("hc_plot_",method_label[i],sep = "")
+  assign(name_plot,plot_map(name_res,paste("HC - ",method_label[i],sep = "")))
+}
+
+sil_values <- data.frame(hclust_method_sil_values,method_label)
+
+```
+
+
+```{r,fig.width=10,fig.height=6}
+
+
+grid.arrange(
+plot_map(hc_res_centroid , "HC - centroid"),plot_map(hc_res_complete," HC - complete"),plot_map(hc_res_average, "HC - average"),ggplot(sil_values,aes(x=reorder(method_label,-hclust_method_sil_values),y=hclust_method_sil_values))+xlab("Method label")+ylab("HC Silhouette")+geom_col(stat="identity"),
+#             plot_map(hc_res_mcquitty," HC - mcquitty"),plot_map(hc_res_median," HC - median"),plot_map(hc_res_single," HC - single"),plot_map(hc_res_ward.D," HC - ward.D"),plot_map(hc_res_ward.D2," HC - ward.D2"),
+             nrow=2,top = "HC Wind map - different methods", layout_matrix = cbind(c(1,4),c(2,4),c(3,4)))
+
+
+```
+
+The overall results are better than with the kmeans, but we only plotted the best and we see that our best result gives us a rather unsatisfactory clustering, meaning we will keep the the second best, corresponding to the "complete" method of cluster aggregation.
+
+We initially believed that with more clusters, the "centroid" method would prevail, but after testing the observation distribution remains inadequate.
+
+## Feature extraction
+
+
+```{r}
+pcaW <- prcomp(Wind,center=TRUE,scale.=TRUE)
+```
+
+
+```{r,fig.height=2, fig.width=6}
+pcaW_var <- pcaW$sdev^2
+pcaW_var_prop <- pcaW_var/sum(pcaW_var)
+df_pcaW_var_prop <- data.frame(pcaW_var_prop, pc = 1:length(pcaW_var_prop))
+
+
+ggplot(df_pcaW_var_prop,aes(x=pc,y=cumsum(pcaW_var_prop)))+geom_point()+geom_hline(yintercept=0.99,linetype="dashed",color="red")+coord_cartesian(ylim=c(0.95,1)) + ylab("Cumulative variance")+ xlab("Principal Components")+ ggtitle("PCA Wind")
+
+```
+
+By keeping the best 109 components, we keep more than 99% of our variance, with twice as less observations.
+
+
+
+Following the subject, we kept only 10 variables and with the kmeans clustering we got this value:
+
+```{r}
+Wind_pca <- data.frame(pcaW$x)
+km_res_pca <- kmeans(Wind_pca[,1:10],4,nstart = 25)
+
+mean(silhouette(km_res_pca$cluster, dist(Wind_pca))[,3])
+```
+
+Which is slightly better but remains lower that the hierarchical clustering. 
+
+```{r plot map wind km pca, fig.align="center",fig.width=4,fig.height=2.5, echo=FALSE}
+#plot_map( km_res_pca$cluster, "Wind clusters - Kmeans pca")
+```
+
+The resulting map is almost identical of the first one, so it won't be shown here.
+
+```{r test, fig.width=10, cache=TRUE}
+
+
+method_label <- c("ward.D","ward.D2","single","complete","average","mcquitty","median","centroid")
+
+hclust_method_sil_values <- matrix(nrow=8)
+for(i in 1:length(method_label)){
+  name_tree <-paste("hc_tree_",method_label[i],sep = "") 
+  assign(name_tree, hclust(dist(Wind_pca[,1:10]),method = method_label[i]))
+  hclust_method_sil_values[i] <-mean(silhouette(cutree(get(name_tree),4),dist(Wind_pca[,1:10]))[,3])
+  name_res <-paste("hc_res_",method_label[i],sep = "")
+  assign(name_res,cutree(get(name_tree),4))
+  name_plot <- paste("hc_plot_",method_label[i],sep = "")
+  assign(name_plot,plot_map(name_res,paste("HC - ",method_label[i],sep = "")))
+}
+
+sil_values <- data.frame(hclust_method_sil_values,method_label)
+
+```
+
+
+```{r,fig.width=10,fig.height=5}
+grid.arrange(
+plot_map(hc_res_average, "HC - average"),
+plot_map(hc_res_mcquitty," HC - mcquitty"),
+plot_map(hc_res_complete," HC - complete"),
+ggplot(sil_values,aes(x=reorder(method_label,-hclust_method_sil_values),y=hclust_method_sil_values))+xlab("Method label")+ylab("HC Silhouette")+geom_col(stat="identity"),
+#             plot_map(hc_res_mcquitty," HC - mcquitty"),plot_map(hc_res_median," HC - median"),plot_map(hc_res_single," HC - single"),plot_map(hc_res_ward.D," HC - ward.D"),plot_map(hc_res_ward.D2," HC - ward.D2"),
+             nrow=2,top = "HC Wind with pca map - different methods", layout_matrix = cbind(c(1,4),c(2,4),c(3,4)))
+
+
+
+```
+
+
+Here again we only ploted the best results, with better silhouette values overall, the maps are quite less diverse but remain believable.
+
+
+In the wind clustering, I believe the most convincing result to be the hierarchical clustering with the "average" aggregating method, eventhough the resulting map lacks an equilibrium between the clusters.
+
+# Temp
+
+## Raw Data
+
+### K-means 
+
+
+We have an acceptable silhouette value compared to the wind dataset:
+
+```{r}
+Temp <- scale(Temp)
+T_km_res <- kmeans(Temp,4,nstart = 25)
+mean(silhouette(T_km_res$cluster, dist(Temp))[,3])
+```
+
+
+
+```{r, fig.align="center",fig.width=4, fig.height=2.5,echo=FALSE}
+plot_map( T_km_res$cluster, "Temperature clusters - Kmeans")
+```
+
+And the maps interestingly enough seems to represent quite accuratly the different geological assets of France: the different mountain ranges being in cluster 3, the Loire and Rhône Basins in cluster 2, some parts of the highest points in cluster 4 and the plains in cluster 1.
+
+
+
+### Hierarchical clustering 
+
+```{r hclust sil values temp,fig.width=10,cache=TRUE}
+
+
+method_label <- c("ward.D","ward.D2","single","complete","average","mcquitty","median","centroid")
+
+Thclust_method_sil_values <- matrix(nrow=8)
+for(i in 1:length(method_label)){
+  name_tree <-paste("Thc_tree_",method_label[i],sep = "") 
+  assign(name_tree, hclust(dist(Temp),method = method_label[i]))
+  Thclust_method_sil_values[i] <-mean(silhouette(cutree(get(name_tree),4),dist(Temp))[,3])
+  name_res <-paste("Thc_res_",method_label[i],sep = "")
+  assign(name_res,cutree(get(name_tree),4))
+  name_plot <- paste("Thc_plot_",method_label[i],sep = "")
+  assign(name_plot,plot_map(name_res,paste("HC - ",method_label[i],sep = "")))
+}
+
+Tsil_values <- data.frame(Thclust_method_sil_values,method_label)
+
+
+```
+
+
+```{r,fig.width=10,fig.height=5}
+grid.arrange(
+plot_map(Thc_res_average, "HC - average"),
+plot_map(Thc_res_single," HC - single"),
+plot_map(Thc_res_centroid," HC - centroid"),
+plot_map(Thc_res_mcquitty," HC - mcquitty"),
+ggplot(Tsil_values,aes(x=reorder(method_label,-Thclust_method_sil_values),y=Thclust_method_sil_values))+xlab("Method label")+ylab("HC Silhouette")+geom_col(stat="identity"),nrow=2,top = "HC Temperature map - different methods", layout_matrix = cbind(c(1,4),c(2,5),c(3,5)))
+
+```
+
+
+Here the silhouette values are the highest encountered but the maps aren't satisfactory, showing again a lack of diversity. The "mcquitty" might be our best choice here.
+
+## Feature extraction
+
+
+```{r}
+pcaT <- prcomp(Temp,center=TRUE,scale.=TRUE)
+```
+
+
+```{r, fig.height=2, fig.width=6}
+pcaT_var <- pcaT$sdev^2
+pcaT_var_prop <- pcaT_var/sum(pcaT_var)
+
+df_pcaT_var_prop <- data.frame(pcaT_var_prop, pc = 1:length(pcaT_var_prop))
+
+ggplot(df_pcaW_var_prop,aes(x=pc,y=cumsum(pcaT_var_prop)))+geom_point()+geom_hline(yintercept=0.99,linetype="dashed",color="red")+coord_cartesian(ylim=c(0.95,1)) + ylab("Cumulative variance")+ xlab("Principal Components")+ ggtitle("PCA Temperature")
+
+```
+
+Again we chose the principal components allowing to retain 99% of our initial standart deviation.
+
+This time we use our pca to considerably reduce our Mclust() function's runtime.
+
+
+```{r tclust calc,cache=TRUE}
+
+Temp_pca <- data.frame(pcaT$x)
+
+TclustBIC <- Mclust(Temp_pca[,1:10], G=1:15, modelNames = c("EII","VII","VEI","VEV"))
+```
+
+After testing the mclust's different gaussian model we kept the VEV one: ellipsoidal with variable volume and equal shape, while keeping 9 clusters. It was indeed the caracteristics that maximised the BIC.
+
+
+
+```{r,fig.height=4}
+plot(TclustBIC,what="BIC")
+```
+
+
+But even with that maximisation the resulting silhouette value is quite low:
+
+```{r}
+ 
+mean(silhouette(TclustBIC$classification, dist(Temp_pca[,1:10]))[,3])
+```
+
+
+But the map is much more segmented than the ones we produced earlier:
+
+```{r , fig.align="center",fig.width=4, fig.height=2.2, echo=FALSE}
+plot_map( TclustBIC$classification, "Temperature clusters - Mclust")
+```
+
+# Wind and temperature clustering
+
+We concatenated the datasets, did a pca on them and tested our different HC methods, and obtained these results: 
+
+```{r,fig.width=10,fig.height=6.8 }
+WT <- data.frame(Wind,Temp)
+WT <- scale(WT)
+
+
+pcaWT <- prcomp(WT,center=TRUE,scale.=TRUE)
+WT_pca <- data.frame(pcaWT$x)
+
+method_label <- c("ward.D","ward.D2","single","complete","average","mcquitty","median","centroid")
+
+WThclust_method_sil_values <- matrix(nrow=8)
+for(i in 1:length(method_label)){
+  name_tree <-paste("WThc_tree_",method_label[i],sep = "") 
+  assign(name_tree, hclust(dist(WT_pca[,1:10]),method = method_label[i]))
+  WThclust_method_sil_values[i] <-mean(silhouette(cutree(get(name_tree),4),dist(WT_pca[,1:10]))[,3])
+  name_res <-paste("WThc_res_",method_label[i],sep = "")
+  assign(name_res,cutree(get(name_tree),4))
+  name_plot <- paste("WThc_plot_",method_label[i],sep = "")
+  assign(name_plot,plot_map(name_res,paste("HC - ",method_label[i],sep = "")))
+}
+
+WTsil_values <- data.frame(WThclust_method_sil_values,method_label)
+
+
+grid.arrange(
+plot_map(WThc_res_median," HC - median"),
+plot_map(WThc_res_single," HC - single"),
+plot_map(WThc_res_centroid," HC - centroid"),
+plot_map(WThc_res_average, "HC - average"),
+plot_map(WThc_res_complete," HC - complete"),
+plot_map(WThc_res_mcquitty," HC - mcquitty"),
+ggplot(WTsil_values,aes(x=reorder(method_label,-WThclust_method_sil_values),y=WThclust_method_sil_values))+xlab("Method label")+ylab("HC Silhouette")+geom_col(stat="identity"),nrow=3,top = "HC Wind and Temperature map - different methods", layout_matrix = cbind(c(1,4,7),c(2,5,7),c(3,6,7)))
+```
+
+
+# Conclusion
+
+In this project we mainly relied on the silhouette indicator and the layout of the clusters to evaluate a model, but maybe it was a mistake as those criteria sometime went against each other, resulting in confusion and difficulty in selecting the best clustering instances.
