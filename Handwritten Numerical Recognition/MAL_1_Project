@@ -1,0 +1,491 @@
+---
+title: "MALProject"
+author: "Frederick Deny - Paul Canat"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Chosen digits
+
+We chosen the first two digits to recognise in our project. We felt that those two digits were relatively simple in concept: a circle and a straight line, but completely different from one another.
+
+```{r,echo=FALSE}
+library(ElemStatLearn);
+train <- data.frame(zip.train);
+test <- data.frame(zip.test);
+
+par(mfrow=c(1,2));
+
+image(zip2image(zip.train,9), col=gray(256:0/256), zlim=c(0,1), xlab="", ylab="",xaxt="n",yaxt="n");
+image(zip2image(zip.train,8), col=gray(256:0/256), zlim=c(0,1), xlab="", ylab="",xaxt="n",yaxt="n");
+```
+
+
+# Random forest
+
+
+## With filtered training data
+
+We first understood that we had to choose two digits to recognise so that the random forest algorithm could be computed faster than if he had to train the model for all digits.
+Consequently we filtered the training data to only keep the rows with "0" and "1" labels, as well as the testing data.
+
+```{r,echo=FALSE, include=TRUE}
+library(tidyverse)
+library(ElemStatLearn);
+
+
+train <- train  %>% filter(train$X1==0 | train$X1==1)
+test <- test  %>% filter(test$X1==0 | test$X1==1)
+```
+
+```{r,echo=FALSE,include=FALSE}
+library("randomForest")
+
+Ytr <- train[,1]
+
+  
+modforest_tr_filt_te_filt <-randomForest(Ytr~.,data = train ,coob=TRUE)
+```
+
+We then applied the random forest classifier to build our model with our filtered data, and build a matrix showing our results:
+
+```{r,echo=FALSE}
+Ypredgrid_tr_filt_te_filt<-predict(modforest_tr_filt_te_filt, newdata=test)
+
+
+t<-matrix(Ypredgrid_tr_filt_te_filt,1)
+
+
+Yte <- test[,1]
+
+
+
+evaluation_tr_filt_te_filt <- ifelse(t > 0.5,1,0)
+
+
+table(Yte,evaluation_tr_filt_te_filt)
+```
+
+We see that in this case, our model estimated perfectly which images represented the digits.
+
+NB: This isn't a confusion matrix: but shows that each zero digits recognised is indeed a zero and the same for the ones.
+
+
+## Without filtered training data
+
+Seeing theses results, we understood we couldn't better theses results: the experiment had limited teachings, so we decided to keep the training data unfiltered, believing we missunderstood the instructions of the project.
+
+```{r,echo=FALSE , include=TRUE}
+library(tidyverse)
+library(ElemStatLearn);
+train_unfiltered <- data.frame(zip.train);
+test <- data.frame(zip.test);
+
+
+test <- test  %>% filter(test$X1==0 | test$X1==1)
+```
+
+```{r,echo=FALSE,include=FALSE}
+library("randomForest")
+
+Ytr <- train_unfiltered[,1]
+
+  
+modforest_te_filt <-randomForest(Ytr~.,data = train_unfiltered ,coob=TRUE)
+```
+
+
+```{r,echo=FALSE}
+Ypredgrid_te_filt<-predict(modforest_te_filt, newdata=test)
+
+
+t<-matrix(Ypredgrid_te_filt,1)
+
+
+Yte <- test[,1]
+
+confusion <- function(table){
+  res <- rep(2,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+  }
+  return(res)
+}
+
+evaluation_te_filt <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_te_filt)
+
+table_0
+table_1
+```
+
+With the training data unfiltered we see that the classifier got some digits wrong, so we made another recap array with the value "2" representing a "neither 0 or 1 has been detected but another digit".
+
+
+To allow the construction of the confusion matrixes, we made two different evaluation of the results, one for each of the two digits.
+
+Those matrixes use the digit to guess as positive and "2" as negative,
+
+
+Altogether we have satsifactory results, but we tried the same experiment but with twice as many trees.
+
+
+```{r,echo=FALSE,include=FALSE}
+library("randomForest")
+
+Ytr <- train_unfiltered[,1]
+
+  
+modforest_te_filt <-randomForest(Ytr~.,data = train_unfiltered,ntree=1000 ,coob=TRUE)
+```
+
+
+```{r,echo=FALSE}
+Ypredgrid_te_filt<-predict(modforest_te_filt, newdata=test)
+
+
+t<-matrix(Ypredgrid_te_filt,1)
+
+
+Yte <- test[,1]
+
+confusion <- function(table){
+  res <- rep(2,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+  }
+  return(res)
+}
+
+evaluation_te_filt <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_te_filt)
+
+table_0
+table_1
+```
+
+We see that by increasing the number of trees we enhance the scoring of the built model.
+
+## Unfiltered data
+
+
+
+```{r,echo=FALSE}
+test_unfiltered <- data.frame(zip.test);
+
+Ypredgrid_unfiltered<-predict(modforest_te_filt, newdata=test_unfiltered)
+
+
+t<-matrix(Ypredgrid_unfiltered,1)
+
+
+Yte <- test_unfiltered[,1]
+
+confusion <- function(table){
+  res <- rep(2,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+  }
+  return(res)
+}
+
+evaluation_te_filt <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_te_filt)
+
+table_0
+table_1
+```
+
+It is important to test the built model with unfiltered test data to insure the model doesn't take another digit for a one or a zero.
+
+# Bagging
+
+## Unfiltered data
+
+In retrospect, we found that using unfiltered data produced more information so decided to work with boosting with all our data.
+
+```{r,echo=FALSE}
+library(tidyverse)
+library(ElemStatLearn);
+train_b <- data.frame(zip.train);
+test_b <- data.frame(zip.test);
+```
+
+```{r,echo=FALSE,include=FALSE}
+library("ipred")
+
+Ytr <- train_b[,1]
+modbag <-bagging(Ytr~.,data = train_b,coob=TRUE)
+```
+
+
+```{r,echo=FALSE}
+Ypredgrid_b<-predict(modbag, newdata=test_b)
+
+
+t<-matrix(Ypredgrid_b,1)
+
+
+Yte <- test_b[,1]
+
+confusion <- function(table){
+  res <- rep(2,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+  }
+  return(res)
+}
+
+evaluation_b <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_b)
+
+
+table_0
+table_1
+```
+
+We see here that bagging isn't powerfull in recognising ones, as he can't seem de detect as little as one of them, and moreover detects all of them as zeroes.
+
+We did the test again while checking it recognises other digits, to see if it was a localised issue:
+
+```{r,echo=FALSE}
+Ypredgrid_b<-predict(modbag, newdata=test_b)
+
+
+t<-matrix(Ypredgrid_b,1)
+
+
+Yte <- test_b[,1]
+
+confusion <- function(table){
+  res <- rep(10,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+    else if (abs(table[i]-2)<0.5){
+      res[i] <- 2
+    }
+    else if (abs(table[i]-3)<0.5){
+      res[i] <- 3
+    }
+    else if (abs(table[i]-4)<0.5){
+      res[i] <- 4
+    }
+    else if (abs(table[i]-5)<0.5){
+      res[i] <- 5
+    }
+    else if (abs(table[i]-6)<0.5){
+      res[i] <- 6
+    }
+    else if (abs(table[i]-7)<0.5){
+      res[i] <- 7
+    }
+    else if (abs(table[i]-8)<0.5){
+      res[i] <- 8
+    }
+    else if (abs(table[i]-9)<0.5){
+      res[i] <- 9
+    }
+  }
+  return(res)
+}
+
+evaluation_b <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_b)
+
+
+table_0
+table_1
+```
+
+
+It seems that the issus is restricted to 1, 5 and 8, which bagging mistakes for 0, 6 and 9.
+
+## More bags
+
+As bagging previously showed no prowess we tried again with more bootstrap replications, 100 whereas we precedently only did 25.
+
+```{r,echo=FALSE,include=FALSE}
+library("ipred")
+
+Ytr <- train_b[,1]
+modbag <-bagging(Ytr~.,data = train_b,coob=TRUE,nbagg=100)
+```
+
+```{r,echo=FALSE}
+Ypredgrid_b<-predict(modbag, newdata=test_b)
+
+
+t<-matrix(Ypredgrid_b,1)
+
+
+Yte <- test_b[,1]
+
+confusion <- function(table){
+  res <- rep(10,length(table))
+  for (i in 1:length(table)){
+    if (abs(table[i]-0)<0.5){
+      res[i] <- 0
+    }
+    else if (abs(table[i]-1)<0.5){
+      res[i] <- 1
+    }
+    else if (abs(table[i]-2)<0.5){
+      res[i] <- 2
+    }
+    else if (abs(table[i]-3)<0.5){
+      res[i] <- 3
+    }
+    else if (abs(table[i]-4)<0.5){
+      res[i] <- 4
+    }
+    else if (abs(table[i]-5)<0.5){
+      res[i] <- 5
+    }
+    else if (abs(table[i]-6)<0.5){
+      res[i] <- 6
+    }
+    else if (abs(table[i]-7)<0.5){
+      res[i] <- 7
+    }
+    else if (abs(table[i]-8)<0.5){
+      res[i] <- 8
+    }
+    else if (abs(table[i]-9)<0.5){
+      res[i] <- 9
+    }
+  }
+  return(res)
+}
+
+evaluation_b <- confusion(t)
+
+evaluation_0 <- ifelse(abs(t-0)<0.5,0,2)
+evaluation_1 <- ifelse(abs(t-1)<0.5,1,2)
+Yte_0 <- ifelse(Yte==0,0,2)
+Yte_1 <- ifelse(Yte==1,1,2)
+
+table_0 <- table(Yte_0,evaluation_0)
+table_1 <- table(Yte_1,evaluation_1)
+table(Yte,evaluation_b)
+
+
+table_0
+table_1
+```
+
+With more bootstrap replication the model does no better than before: it seems that bagging isn't efficient in this case.
+
+
+# Boosting
+
+```{r,echo=FALSE , include=TRUE}
+library(tidyverse)
+library(ElemStatLearn);
+train_bo <- data.frame(zip.train);
+test_bo <- data.frame(zip.test);
+
+test_bo <- test_bo  %>% filter(test_bo$X1==0 | test_bo$X1==1)
+```
+
+```{r,echo=FALSE,include=FALSE}
+library("adabag")
+train_bo$X1 <- as.factor(train_bo$X1)
+modboost <-boosting(X1~.,data = train_bo)
+```
+
+
+```{r,echo=FALSE}
+Ypredgrid_bo_unfiltered<-predict(modboost, newdata=test_bo)
+
+Ypredgrid_bo_unfiltered$confusion
+```
+
+
+We see that bagging works in a satisfactory manner, but shows a lot of residual error.
+
+We will try by making boosting use more iterations:
+
+
+```{r,echo=FALSE,include=FALSE}
+library("adabag")
+train_bo$X1 <- as.factor(train_bo$X1)
+modboostenhanced <-boosting(X1~.,data = train_bo,mfinal=200)
+```
+
+
+```{r,echo=FALSE}
+Ypredgrid_bo_unfiltered<-predict(modboostenhanced, newdata=test_bo)
+
+Ypredgrid_bo_unfiltered$confusion
+```
+Even with twice as many iterations, the model gives very similar results, showing that we are at the limit of this model to distinguish digits.
+
+# Conclusion
+
+It  seems that between the three classification methods that we tested during this study, the random forest is the most powerfull one: in less working time than boosting it was more precise, while bagging was unsurprisingly a weak predictor.
